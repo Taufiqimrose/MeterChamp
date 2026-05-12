@@ -1,8 +1,19 @@
-/// <reference types="@webgpu/types" />
 import * as ort from "onnxruntime-web";
 
 let session: ort.InferenceSession | null = null;
 let backendName: "WebGPU" | "WASM" = "WASM";
+
+interface MinimalGpuAdapter {
+  requestDevice(): Promise<unknown>;
+}
+
+interface MinimalGpu {
+  requestAdapter(): Promise<MinimalGpuAdapter | null>;
+}
+
+function getGpu(): MinimalGpu | undefined {
+  return (navigator as Navigator & { gpu?: MinimalGpu }).gpu;
+}
 
 export function isUsingWebGPU(): boolean {
   return backendName === "WebGPU";
@@ -16,13 +27,14 @@ function shouldTryWebGPU(): boolean {
   if (typeof window === "undefined") return false;
   const params = new URLSearchParams(window.location.search);
   if (params.get("gpu") === "0") return false;
-  return "gpu" in navigator;
+  return Boolean(getGpu());
 }
 
 async function probeWebGPU(): Promise<boolean> {
-  if (!("gpu" in navigator)) return false;
+  const gpu = getGpu();
+  if (!gpu) return false;
   try {
-    const adapter = await navigator.gpu!.requestAdapter();
+    const adapter = await gpu.requestAdapter();
     if (!adapter) return false;
     const device = await adapter.requestDevice();
     if (!device) return false;

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
 import { Gauge } from "lucide-react";
 import { LoginForm } from "@/app/_components/login-form";
 
@@ -26,7 +27,9 @@ export default function LoginPage() {
       </header>
 
       <div className="mt-10 flex flex-1 flex-col">
-        <LoginForm />
+        <Suspense fallback={null}>
+          <LoginForm />
+        </Suspense>
 
         <div className="mt-auto flex justify-center pt-12">
           <Link

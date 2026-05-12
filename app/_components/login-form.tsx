@@ -1,27 +1,40 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ChangeEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { motion } from "motion/react";
+import { motion, type Variants } from "motion/react";
 import { Eye, EyeOff } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
-const fadeUp = {
+const fadeUp: Variants = {
   hidden: { opacity: 0, y: 16 },
   visible: {
     opacity: 1,
     y: 0,
-    transition: { type: "spring" as const, stiffness: 220, damping: 24 },
   },
 };
 
-const container = {
+const container: Variants = {
   hidden: { opacity: 0 },
   visible: {
     opacity: 1,
-    transition: { staggerChildren: 0.06, delayChildren: 0.05 },
   },
 };
+
+const fadeUpTransition = {
+  type: "spring" as const,
+  stiffness: 220,
+  damping: 24,
+};
+
+const containerTransition = {
+  staggerChildren: 0.06,
+  delayChildren: 0.05,
+};
+
+function getInputValue(event: ChangeEvent<HTMLInputElement>) {
+  return (event.currentTarget as EventTarget & { value: string }).value;
+}
 
 export function LoginForm() {
   const router = useRouter();
@@ -61,11 +74,16 @@ export function LoginForm() {
       variants={container}
       initial="hidden"
       animate="visible"
+      transition={containerTransition}
       onSubmit={handleSubmit}
       className="flex w-full flex-col gap-6"
       noValidate
     >
-      <motion.div variants={fadeUp} className="flex flex-col gap-2">
+      <motion.div
+        variants={fadeUp}
+        transition={fadeUpTransition}
+        className="flex flex-col gap-2"
+      >
         <label
           htmlFor="email"
           className="text-base font-semibold text-ink"
@@ -80,12 +98,16 @@ export function LoginForm() {
           autoComplete="email"
           placeholder="you@harmonycom.com"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => setEmail(getInputValue(e))}
           className="w-full rounded-2xl border border-zinc-200 bg-white px-5 py-4 text-base text-ink placeholder:text-neutral/70 shadow-sm outline-none transition focus:border-secondary focus:ring-4 focus:ring-secondary/15"
         />
       </motion.div>
 
-      <motion.div variants={fadeUp} className="flex flex-col gap-2">
+      <motion.div
+        variants={fadeUp}
+        transition={fadeUpTransition}
+        className="flex flex-col gap-2"
+      >
         <label
           htmlFor="password"
           className="text-base font-semibold text-ink"
@@ -101,7 +123,7 @@ export function LoginForm() {
             autoComplete="current-password"
             placeholder="Enter your password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => setPassword(getInputValue(e))}
             className="w-full rounded-2xl border border-zinc-200 bg-white px-5 py-4 pr-14 text-base text-ink placeholder:text-neutral/70 shadow-sm outline-none transition focus:border-secondary focus:ring-4 focus:ring-secondary/15"
           />
           <button
@@ -122,6 +144,7 @@ export function LoginForm() {
 
       <motion.div
         variants={fadeUp}
+        transition={fadeUpTransition}
         className="flex items-center justify-between"
       >
         <span className="text-base font-medium text-ink">
@@ -150,6 +173,7 @@ export function LoginForm() {
       {error ? (
         <motion.p
           variants={fadeUp}
+          transition={fadeUpTransition}
           role="alert"
           className="rounded-xl bg-danger/10 px-4 py-3 text-sm font-medium text-danger"
         >
@@ -159,6 +183,7 @@ export function LoginForm() {
 
       <motion.button
         variants={fadeUp}
+        transition={fadeUpTransition}
         whileTap={{ scale: 0.98 }}
         type="submit"
         disabled={isPending}

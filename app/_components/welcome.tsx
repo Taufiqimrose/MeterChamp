@@ -1,26 +1,35 @@
 "use client";
 
 import Link from "next/link";
-import { motion } from "motion/react";
+import { motion, type Variants } from "motion/react";
 import { Gauge } from "lucide-react";
 
 const MotionLink = motion.create(Link);
 
-const fadeUp = {
+const fadeUp: Variants = {
   hidden: { opacity: 0, y: 16 },
   visible: {
     opacity: 1,
     y: 0,
-    transition: { type: "spring" as const, stiffness: 220, damping: 24 },
   },
 };
 
-const container = {
+const container: Variants = {
   hidden: { opacity: 0 },
   visible: {
     opacity: 1,
-    transition: { staggerChildren: 0.08, delayChildren: 0.05 },
   },
+};
+
+const fadeUpTransition = {
+  type: "spring" as const,
+  stiffness: 220,
+  damping: 24,
+};
+
+const containerTransition = {
+  staggerChildren: 0.08,
+  delayChildren: 0.05,
 };
 
 export function Welcome() {
@@ -29,10 +38,15 @@ export function Welcome() {
       variants={container}
       initial="hidden"
       animate="visible"
+      transition={containerTransition}
       className="flex min-h-dvh w-full flex-col bg-cream px-8 pb-8 pt-28 text-ink"
     >
       <main className="flex flex-1 flex-col items-center text-center">
-        <motion.div variants={fadeUp} aria-hidden>
+        <motion.div
+          variants={fadeUp}
+          transition={fadeUpTransition}
+          aria-hidden
+        >
           <Gauge
             className="size-24 text-secondary"
             strokeWidth={2.25}
@@ -41,6 +55,7 @@ export function Welcome() {
 
         <motion.h1
           variants={fadeUp}
+          transition={fadeUpTransition}
           className="mt-10 text-3xl font-extrabold uppercase tracking-wide"
         >
           Meters Made Easy
@@ -48,6 +63,7 @@ export function Welcome() {
 
         <motion.p
           variants={fadeUp}
+          transition={fadeUpTransition}
           className="mt-3 text-base font-bold text-neutral"
         >
           Read. Snap. Done.
@@ -58,6 +74,7 @@ export function Welcome() {
         <MotionLink
           href="/login"
           variants={fadeUp}
+          transition={fadeUpTransition}
           whileTap={{ scale: 0.98 }}
           className="w-full max-w-md rounded-2xl bg-primary py-4 text-center text-lg font-semibold text-ink shadow-sm transition-colors hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-hover"
         >
@@ -66,6 +83,7 @@ export function Welcome() {
 
         <motion.div
           variants={fadeUp}
+          transition={fadeUpTransition}
           className="flex flex-col items-center gap-1 text-xs text-neutral"
         >
           <span>Created by Harmony Com AI Team</span>
