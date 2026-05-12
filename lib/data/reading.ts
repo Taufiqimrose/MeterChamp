@@ -67,7 +67,7 @@ export async function getReadingProgress(): Promise<ReadingProgress | null> {
     electric: { total: 0, read: 0, nextLabel: null },
   };
 
-  for (const m of (meters ?? []) as MeterRow[]) {
+  for (const m of (meters ?? []) as unknown as MeterRow[]) {
     const slot = byType[m.meter_type];
     slot.total += 1;
     const readThisCycle = m.meter_readings.some(
@@ -146,7 +146,7 @@ export async function getNextPendingMeter(meterType: MeterType): Promise<
   };
 
   const monthStart = startOfMonth(new Date());
-  const pending = (meters as Row[] | null ?? [])
+  const pending = ((meters ?? []) as unknown as Row[])
     .filter(
       (m) =>
         !m.meter_readings.some(
