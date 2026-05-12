@@ -95,6 +95,7 @@ export async function capturePhoto(formData: FormData): Promise<CaptureResult> {
   const { error: insertErr } = await supabase.from("photos").insert({
     id: photoId,
     unit_id: ctx.unitId,
+    unit_meter_id: ctx.unitMeterId,
     kind: "meter_reading",
     s3_bucket: ctx.s3Bucket,
     s3_key: s3Key,

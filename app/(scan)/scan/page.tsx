@@ -70,8 +70,13 @@ export default async function ScanPage({
     );
   }
 
+  // Keying by unitMeterId forces React to unmount + remount when the next
+  // pending meter changes — otherwise client state (captureDone, smoothing
+  // refs, the running camera) sticks around from the previous meter and the
+  // UI appears frozen after capture.
   return (
     <ScanCamera
+      key={next.unitMeterId}
       unitMeterId={next.unitMeterId}
       unitId={next.unitId}
       unitLabel={next.unitLabel}

@@ -61,11 +61,12 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot | null> 
   const { park_id, park_name, total_meters, readings_this_month } =
     progressRes.data;
 
-  // Latest non-superseded reading on a meter in this park, plus the unit
-  // label and meter type for display. One round trip via a relationship
-  // select.
+  // Latest captured (non-deleted) meter_reading photo in this park, plus the
+  // unit label and meter type for display. We key off photos rather than
+  // meter_readings because the reader's "last action" is uploading a photo;
+  // the extraction service writes the meter_readings row later.
   const lastReadingRes = await supabase
-    .from("meter_readings")
+    .from("photos")
     .select(
       `
       captured_at,
@@ -75,8 +76,9 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot | null> 
       )
     `,
     )
+    .eq("kind", "meter_reading")
+    .is("deleted_at", null)
     .eq("unit_meters.units.park_id", park_id)
-    .is("superseded_by", null)
     .order("captured_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -88,7 +90,7 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot | null> 
       units: { label: string };
     };
   };
-  const lastReading = lastReadingRes.data as LastReadingRow | null;
+  const lastReading = lastReadingRes.data as unknown as LastReadingRow | null;
 
   return {
     fullName,
