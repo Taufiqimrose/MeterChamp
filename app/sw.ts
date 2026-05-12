@@ -4,7 +4,7 @@
 
 import { defaultCache } from "@serwist/next/worker";
 import type { PrecacheEntry, SerwistGlobalConfig } from "serwist";
-import { Serwist } from "serwist";
+import { Serwist, NetworkOnly } from "serwist";
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -19,7 +19,16 @@ const serwist = new Serwist({
   skipWaiting: true,
   clientsClaim: true,
   navigationPreload: true,
-  runtimeCaching: defaultCache,
+  runtimeCaching: [
+    // The ONNX model must always come straight from the network — a cached
+    // HTML 4xx/redirect response served as bytes makes ORT throw
+    // "protobuf parsing failed" (ERROR_CODE: 7) on session.create.
+    {
+      matcher: ({ url }) => url.pathname.endsWith(".onnx"),
+      handler: new NetworkOnly(),
+    },
+    ...defaultCache,
+  ],
 });
 
 serwist.addEventListeners();

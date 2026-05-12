@@ -7,6 +7,10 @@ const withSerwist = withSerwistInit({
   disable: process.env.NODE_ENV === "development",
   cacheOnNavigation: true,
   reloadOnOnline: true,
+  // Keep the 4.97 MB model out of the precache manifest — it's only needed
+  // by /scan, and shipping it in the first SW install slows every cold load.
+  // The SW's NetworkOnly rule (see app/sw.ts) handles fetching it.
+  globPublicPatterns: ["**/!(*.onnx)"],
 });
 
 const nextConfig: NextConfig = {
