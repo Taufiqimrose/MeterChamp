@@ -525,8 +525,6 @@ export function ScanCamera({
           });
         });
       }
-      syncOverlaySize();
-
       // Init offscreen canvases (must be done client-side)
       if (!modelCanvasRef.current) {
         modelCanvasRef.current = new OffscreenCanvas(640, 640);
@@ -674,6 +672,14 @@ export function ScanCamera({
     window.addEventListener("resize", syncOverlaySize);
     return () => window.removeEventListener("resize", syncOverlaySize);
   }, [syncOverlaySize]);
+
+  // The video/canvas are hidden before the scanner is running, so their
+  // bounding rect is 0x0 until React commits the running UI.
+  useEffect(() => {
+    if (phase !== "running") return;
+    const frame = requestAnimationFrame(syncOverlaySize);
+    return () => cancelAnimationFrame(frame);
+  }, [phase, syncOverlaySize]);
 
   // Auto-start the camera on mount when permission is already granted.
   // First-ever visit requires a user gesture for the permission prompt, so
