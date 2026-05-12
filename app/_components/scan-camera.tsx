@@ -45,13 +45,7 @@ import {
   loadModel,
   type LoadProgress,
 } from "@/lib/camera/inference";
-import {
-  computeLetterbox,
-  decode,
-  unletterbox,
-  type LetterboxParams,
-  type SourceBox,
-} from "@/lib/camera/decode";
+import { decode, type SourceBox } from "@/lib/camera/decode";
 import { combine, scoreROI, type QualityScores } from "@/lib/camera/quality";
 
 type Phase = "idle" | "loading" | "running" | "error";
@@ -63,9 +57,31 @@ interface Drawable extends SourceBox {
 }
 
 const SCORE_THRESHOLD = 0.08;
-const GUIDE = { xFrac: 0.1, yFrac: 0.15, wFrac: 0.8, hFrac: 0.7 };
+
+/** Visual guide square: 78% of the shorter video dimension, nudged 3% up. */
+const GUIDE_SIDE_FRAC = 0.78;
+const GUIDE_Y_OFFSET_FRAC = -0.03;
+
 const BOX_EMA_ALPHA = 0.45;
 const Q_EMA_ALPHA = 0.35;
+
+interface GuideRect {
+  x: number;
+  y: number;
+  side: number;
+}
+
+/**
+ * The model only ever sees what's inside the on-screen square. We crop the
+ * source frame to that square and feed exactly that to the 640×640 input —
+ * no letterbox padding, so every input pixel carries meter signal.
+ */
+function guideRectInSource(sw: number, sh: number): GuideRect {
+  const side = Math.round(Math.min(sw, sh) * GUIDE_SIDE_FRAC);
+  const x = Math.max(0, Math.round((sw - side) / 2));
+  const y = Math.max(0, Math.round((sh - side) / 2 + sh * GUIDE_Y_OFFSET_FRAC));
+  return { x, y, side };
+}
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
@@ -231,12 +247,21 @@ export function ScanCamera({
       const h = item.h * sy;
       const color = qualityColor(item.quality);
 
+      // Subtle tinted fill so the box reads as a region, not just a frame.
       ctx.fillStyle = color
         .replace("hsl(", "hsla(")
-        .replace(")", ", 0.08)");
+        .replace(")", ", 0.15)");
       ctx.fillRect(x, y, w, h);
 
-      drawCornerBrackets(ctx, x, y, w, h, color, 3);
+      // Bold full-rectangle outline — readable from across the room.
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 4;
+      ctx.lineJoin = "round";
+      // Inset by half the stroke so the outline sits on the box edge cleanly.
+      ctx.strokeRect(x + 2, y + 2, w - 4, h - 4);
+
+      // Corner ticks on top of the outline for extra emphasis.
+      drawCornerBrackets(ctx, x, y, w, h, color, 5);
 
       const label = `${(item.quality * 100).toFixed(0)}%`;
       const padX = 8;
@@ -268,17 +293,22 @@ export function ScanCamera({
     }
   }, []);
 
-  const extractFrameTo640 = useCallback((lb: LetterboxParams): ImageData => {
+  /** Crop the source video to the guide square, scale into 640×640. */
+  const extractGuideTo640 = useCallback((guide: GuideRect): ImageData => {
     const videoEl = videoRef.current!;
     const ctx = modelCtxRef.current!;
-    ctx.fillStyle = "rgb(114,114,114)";
-    ctx.fillRect(0, 0, 640, 640);
+    // No fillRect needed — the drawImage covers the entire 640×640 since
+    // input and output are both square.
     ctx.drawImage(
       videoEl,
-      lb.padX,
-      lb.padY,
-      videoEl.videoWidth * lb.scale,
-      videoEl.videoHeight * lb.scale,
+      guide.x,
+      guide.y,
+      guide.side,
+      guide.side,
+      0,
+      0,
+      640,
+      640,
     );
     return ctx.getImageData(0, 0, 640, 640);
   }, []);
@@ -298,20 +328,6 @@ export function ScanCamera({
     return ctx.getImageData(0, 0, w, h);
   }, []);
 
-  const boxCenterInGuide = useCallback((box: SourceBox): boolean => {
-    const videoEl = videoRef.current!;
-    const vw = videoEl.videoWidth;
-    const vh = videoEl.videoHeight;
-    const cx = box.x + box.w / 2;
-    const cy = box.y + box.h / 2;
-    return (
-      cx >= GUIDE.xFrac * vw &&
-      cx <= (GUIDE.xFrac + GUIDE.wFrac) * vw &&
-      cy >= GUIDE.yFrac * vh &&
-      cy <= (GUIDE.yFrac + GUIDE.hFrac) * vh
-    );
-  }, []);
-
   const loop = useCallback(async () => {
     const videoEl = videoRef.current;
     if (!videoEl) return;
@@ -320,21 +336,34 @@ export function ScanCamera({
 
     while (runningRef.current) {
       if (videoEl.readyState >= 2) {
-        const lb = computeLetterbox(videoEl.videoWidth, videoEl.videoHeight, 640);
-        const frameImage = extractFrameTo640(lb);
+        const guide = guideRectInSource(
+          videoEl.videoWidth,
+          videoEl.videoHeight,
+        );
+        const frameImage = extractGuideTo640(guide);
         const tensor = imageDataToTensor(frameImage);
         const output = await infer(tensor);
         const dets = decode(output, SCORE_THRESHOLD);
 
+        // Map detections from 640-space back to source-video pixels using
+        // the crop offset + scale. The crop is square so scale is uniform.
+        const scale = guide.side / 640;
+
         let best: SourceBox | null = null;
         let bestArea = 0;
         for (const d of dets) {
-          const box = unletterbox(d, lb);
-          if (box.w < 8 || box.h < 8) continue;
-          if (!boxCenterInGuide(box)) continue;
-          const area = box.w * box.h;
+          const w = (d.x2 - d.x1) * scale;
+          const h = (d.y2 - d.y1) * scale;
+          if (w < 8 || h < 8) continue;
+          const area = w * h;
           if (area > bestArea) {
-            best = box;
+            best = {
+              x: d.x1 * scale + guide.x,
+              y: d.y1 * scale + guide.y,
+              w,
+              h,
+              score: d.score,
+            };
             bestArea = area;
           }
         }
@@ -414,7 +443,7 @@ export function ScanCamera({
       }
       await new Promise<void>((r) => requestAnimationFrame(() => r()));
     }
-  }, [boxCenterInGuide, cropROI, drawOverlay, extractFrameTo640]);
+  }, [cropROI, drawOverlay, extractGuideTo640]);
 
   const handleStart = useCallback(async () => {
     setError(null);
@@ -682,20 +711,28 @@ export function ScanCamera({
           className={`pointer-events-none absolute inset-0 ${phase === "running" ? "" : "hidden"}`}
         />
 
-        {/* Guide rect when running */}
+        {/* Centered 1:1 framing guide + persistent instruction.
+            Detection bounds (GUIDE in source-video space) remain slightly
+            wider than this visual square so a meter inside the box always
+            registers as "in frame". */}
         {phase === "running" ? (
           <div
             aria-hidden
-            className={`pointer-events-none absolute rounded-2xl border-2 border-dashed transition-colors ${
-              detected ? "border-primary" : "border-white/60"
-            }`}
-            style={{
-              top: `${GUIDE.yFrac * 100}%`,
-              left: `${GUIDE.xFrac * 100}%`,
-              width: `${GUIDE.wFrac * 100}%`,
-              height: `${GUIDE.hFrac * 100}%`,
-            }}
-          />
+            className="pointer-events-none absolute inset-0 flex items-center justify-center"
+          >
+            <div className="flex -translate-y-[3vh] flex-col items-center gap-4">
+              <div
+                className={`aspect-square w-[78vw] max-w-[440px] rounded-3xl border-2 border-dashed transition-colors ${
+                  detected
+                    ? "border-primary shadow-[0_0_0_4px_rgba(255,182,39,0.2)]"
+                    : "border-white/70"
+                }`}
+              />
+              <p className="rounded-full bg-black/60 px-4 py-2 text-sm font-semibold text-white backdrop-blur-md">
+                Place the meter inside the box
+              </p>
+            </div>
+          </div>
         ) : null}
 
         {/* Idle state */}
