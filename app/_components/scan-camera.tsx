@@ -58,9 +58,9 @@ interface Drawable extends SourceBox {
 
 const SCORE_THRESHOLD = 0.08;
 
-/** Visual guide square: 78% of the shorter video dimension, nudged 3% up. */
-const GUIDE_SIDE_FRAC = 0.78;
-const GUIDE_Y_OFFSET_FRAC = -0.03;
+/** Visual guide square: 88% of the shorter CSS dimension, nudged 2% up. */
+const GUIDE_SIDE_FRAC = 0.88;
+const GUIDE_Y_OFFSET_FRAC = -0.02;
 
 const BOX_EMA_ALPHA = 0.45;
 const Q_EMA_ALPHA = 0.35;
@@ -72,14 +72,68 @@ interface GuideRect {
 }
 
 /**
- * The model only ever sees what's inside the on-screen square. We crop the
- * source frame to that square and feed exactly that to the 640×640 input —
- * no letterbox padding, so every input pixel carries meter signal.
+ * The on-screen `<video object-cover>` and the source video frame don't
+ * share a coordinate system: the video is scaled uniformly (one factor for
+ * both axes) and possibly cropped on one axis. To map source-pixel
+ * detections back to CSS pixels — and to crop the inference input from the
+ * exact area the user sees — we compute the affine transform once per
+ * frame.
  */
-function guideRectInSource(sw: number, sh: number): GuideRect {
-  const side = Math.round(Math.min(sw, sh) * GUIDE_SIDE_FRAC);
-  const x = Math.max(0, Math.round((sw - side) / 2));
-  const y = Math.max(0, Math.round((sh - side) / 2 + sh * GUIDE_Y_OFFSET_FRAC));
+interface ViewTransform {
+  /** source-pixel → css-pixel scale (uniform). */
+  scale: number;
+  /** css offsets of the source origin (can be negative when cropped). */
+  offsetX: number;
+  offsetY: number;
+  /** css container size. */
+  cw: number;
+  ch: number;
+}
+
+function getViewTransform(videoEl: HTMLVideoElement): ViewTransform | null {
+  const sw = videoEl.videoWidth;
+  const sh = videoEl.videoHeight;
+  if (!sw || !sh) return null;
+  const rect = videoEl.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  const scale = Math.max(rect.width / sw, rect.height / sh);
+  return {
+    scale,
+    offsetX: (rect.width - sw * scale) / 2,
+    offsetY: (rect.height - sh * scale) / 2,
+    cw: rect.width,
+    ch: rect.height,
+  };
+}
+
+/**
+ * Compute the source-pixel rectangle that corresponds to the visible guide
+ * square on screen. Crops the inference input to exactly the rectangle the
+ * user is aiming at — nothing outside the box is ever seen by the model.
+ */
+function computeGuideInSource(
+  view: ViewTransform,
+  sw: number,
+  sh: number,
+): GuideRect {
+  const cssSide = Math.min(view.cw, view.ch) * GUIDE_SIDE_FRAC;
+  const cssCenterX = view.cw / 2;
+  const cssCenterY = view.ch / 2 + view.ch * GUIDE_Y_OFFSET_FRAC;
+
+  const sourceSide = cssSide / view.scale;
+  const sourceCenterX = (cssCenterX - view.offsetX) / view.scale;
+  const sourceCenterY = (cssCenterY - view.offsetY) / view.scale;
+
+  // Clamp inside the source frame; round to integers for drawImage.
+  const side = Math.round(Math.min(sourceSide, sw, sh));
+  const x = Math.max(
+    0,
+    Math.min(sw - side, Math.round(sourceCenterX - side / 2)),
+  );
+  const y = Math.max(
+    0,
+    Math.min(sh - side, Math.round(sourceCenterY - side / 2)),
+  );
   return { x, y, side };
 }
 
@@ -232,19 +286,24 @@ export function ScanCamera({
     const dpr = window.devicePixelRatio || 1;
     const cssW = overlayEl.width / dpr;
     const cssH = overlayEl.height / dpr;
-    const sx = cssW / videoEl.videoWidth;
-    const sy = cssH / videoEl.videoHeight;
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cssW, cssH);
     ctx.font = "600 13px var(--font-sans), system-ui, sans-serif";
     ctx.textBaseline = "top";
 
+    // Object-cover transform from source-pixel coords to CSS coords. Without
+    // this the box lands in the wrong place (often off-screen) whenever the
+    // source aspect doesn't match the container aspect, which on a phone in
+    // portrait is basically always.
+    const view = getViewTransform(videoEl);
+    if (!view) return;
+
     for (const item of items) {
-      const x = item.x * sx;
-      const y = item.y * sy;
-      const w = item.w * sx;
-      const h = item.h * sy;
+      const x = item.x * view.scale + view.offsetX;
+      const y = item.y * view.scale + view.offsetY;
+      const w = item.w * view.scale;
+      const h = item.h * view.scale;
       const color = qualityColor(item.quality);
 
       // Subtle tinted fill so the box reads as a region, not just a frame.
@@ -336,7 +395,13 @@ export function ScanCamera({
 
     while (runningRef.current) {
       if (videoEl.readyState >= 2) {
-        const guide = guideRectInSource(
+        const view = getViewTransform(videoEl);
+        if (!view) {
+          await new Promise<void>((r) => requestAnimationFrame(() => r()));
+          continue;
+        }
+        const guide = computeGuideInSource(
+          view,
           videoEl.videoWidth,
           videoEl.videoHeight,
         );
@@ -720,9 +785,9 @@ export function ScanCamera({
             aria-hidden
             className="pointer-events-none absolute inset-0 flex items-center justify-center"
           >
-            <div className="flex -translate-y-[3vh] flex-col items-center gap-4">
+            <div className="flex -translate-y-[2vh] flex-col items-center gap-4">
               <div
-                className={`aspect-square w-[78vw] max-w-[440px] rounded-3xl border-2 border-dashed transition-colors ${
+                className={`aspect-square w-[88vw] max-w-[480px] rounded-3xl border-2 border-dashed transition-colors ${
                   detected
                     ? "border-primary shadow-[0_0_0_4px_rgba(255,182,39,0.2)]"
                     : "border-white/70"
