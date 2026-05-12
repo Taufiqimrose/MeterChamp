@@ -17,6 +17,13 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: import.meta.dirname,
   },
+  experimental: {
+    // Photo uploads via capturePhoto server action; phone photos can be a
+    // few MB. Default 1 MB is too low.
+    serverActions: {
+      bodySizeLimit: "10mb",
+    },
+  },
 };
 
 export default withSerwist(nextConfig);

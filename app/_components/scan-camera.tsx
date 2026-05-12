@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Camera, X, Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Camera, CheckCircle2, X, Loader2 } from "lucide-react";
+import { capturePhoto } from "@/lib/actions/capture-photo";
 import { startCamera, stopCamera } from "@/lib/camera/camera";
 import {
   imageDataToTensor,
@@ -97,10 +99,37 @@ function computeTip(
   return { msg: "Hold steady — adjusting…", level: "info" };
 }
 
-export function ScanCamera() {
+export interface ScanCameraProps {
+  unitMeterId: string;
+  unitId: string;
+  unitLabel: string;
+  meterType: "water" | "gas" | "electric";
+  unitOfMeasure: string;
+  /** How many meters of this type still need a capture this cycle, including current. */
+  remaining: number;
+  /** When set, after a successful capture we auto-advance to /scan?type=X. */
+  progressionType: "water" | "gas" | "electric";
+}
+
+export function ScanCamera({
+  unitMeterId,
+  unitId: _unitId,
+  unitLabel,
+  meterType,
+  unitOfMeasure,
+  remaining,
+  progressionType,
+}: ScanCameraProps) {
+  const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const runningRef = useRef(false);
+  const lastQualityRef = useRef(0);
+  const lastGpsRef = useRef<{
+    lat: number;
+    lng: number;
+    accuracy: number;
+  } | null>(null);
 
   const modelCanvasRef = useRef<OffscreenCanvas | null>(null);
   const modelCtxRef = useRef<OffscreenCanvasRenderingContext2D | null>(null);
@@ -127,6 +156,9 @@ export function ScanCamera() {
   const [scores, setScores] = useState<QualityScores | null>(null);
   const [overall, setOverall] = useState<number>(0);
   const [detected, setDetected] = useState(false);
+  const [capturing, setCapturing] = useState(false);
+  const [captureError, setCaptureError] = useState<string | null>(null);
+  const [captureDone, setCaptureDone] = useState(false);
 
   const syncOverlaySize = useCallback(() => {
     const videoEl = videoRef.current;
@@ -324,9 +356,11 @@ export function ScanCamera() {
         if (items.length > 0) {
           setScores(items[0].scores);
           setOverall(items[0].quality);
+          lastQualityRef.current = items[0].quality;
         } else {
           setScores(null);
           setOverall(0);
+          lastQualityRef.current = 0;
         }
         const t = computeTip(items, videoEl.videoWidth, videoEl.videoHeight);
         setTip(t);
@@ -397,12 +431,87 @@ export function ScanCamera() {
       setPhase("running");
       runningRef.current = true;
       loop();
+
+      // Best-effort GPS lookup once camera is live. Silently ignore denial —
+      // GPS is forensic-only; capture still works without it.
+      if ("geolocation" in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            lastGpsRef.current = {
+              lat: pos.coords.latitude,
+              lng: pos.coords.longitude,
+              accuracy: pos.coords.accuracy,
+            };
+          },
+          () => {
+            /* user denied or unavailable — fine */
+          },
+          { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 },
+        );
+      }
     } catch (err) {
       console.error(err);
       setError((err as Error).message);
       setPhase("error");
     }
   }, [loop, syncOverlaySize]);
+
+  const handleCapture = useCallback(async () => {
+    const videoEl = videoRef.current;
+    if (!videoEl || videoEl.readyState < 2) return;
+    if (capturing) return;
+
+    setCaptureError(null);
+    setCapturing(true);
+
+    try {
+      // Snapshot the current frame to a JPEG blob at source resolution.
+      const snapCanvas = new OffscreenCanvas(
+        videoEl.videoWidth,
+        videoEl.videoHeight,
+      );
+      const ctx = snapCanvas.getContext("2d");
+      if (!ctx) throw new Error("Snapshot context unavailable");
+      ctx.drawImage(videoEl, 0, 0);
+      const blob = await snapCanvas.convertToBlob({
+        type: "image/jpeg",
+        quality: 0.85,
+      });
+
+      const fd = new FormData();
+      fd.append("unit_meter_id", unitMeterId);
+      fd.append("photo", blob, "capture.jpg");
+      fd.append("quality_score", lastQualityRef.current.toFixed(4));
+      fd.append("user_agent", navigator.userAgent);
+      const gps = lastGpsRef.current;
+      if (gps) {
+        fd.append("gps_lat", gps.lat.toString());
+        fd.append("gps_lng", gps.lng.toString());
+        fd.append("gps_accuracy_m", gps.accuracy.toString());
+      }
+
+      const result = await capturePhoto(fd);
+      if (!result.ok) {
+        setCaptureError(result.error);
+        setCapturing(false);
+        return;
+      }
+
+      setCaptureDone(true);
+      // Stop the loop and camera, then advance to the next pending meter.
+      runningRef.current = false;
+      stopCamera(videoEl);
+      // Quick "captured" affordance, then auto-advance.
+      setTimeout(() => {
+        router.replace(`/scan?type=${progressionType}`);
+        router.refresh();
+      }, 700);
+    } catch (err) {
+      console.error(err);
+      setCaptureError((err as Error).message ?? "Capture failed");
+      setCapturing(false);
+    }
+  }, [capturing, progressionType, router, unitMeterId]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -438,16 +547,24 @@ export function ScanCamera() {
   return (
     <div className="relative flex flex-1 flex-col bg-black text-white">
       {/* Top bar */}
-      <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between px-4 pt-4">
+      <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-3 px-4 pt-4">
         <Link
-          href="/dashboard"
+          href="/read"
           aria-label="Close scanner"
-          className="flex size-10 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur transition-colors hover:bg-black/70"
+          className="flex size-10 shrink-0 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur transition-colors hover:bg-black/70"
         >
           <X className="size-5" aria-hidden />
         </Link>
+        <div className="flex-1 rounded-2xl bg-black/55 px-3 py-2 text-center text-xs leading-tight text-white backdrop-blur">
+          <p className="font-semibold capitalize">
+            {meterType} meter · {unitLabel}
+          </p>
+          <p className="text-white/70">
+            {unitOfMeasure} · {remaining} left
+          </p>
+        </div>
         {phase === "running" && fpsLabel ? (
-          <span className="rounded-full bg-black/50 px-3 py-1 text-xs font-medium text-white/80 backdrop-blur">
+          <span className="hidden rounded-full bg-black/50 px-3 py-1 text-xs font-medium text-white/80 backdrop-blur sm:inline">
             {fpsLabel}
           </span>
         ) : null}
@@ -594,6 +711,42 @@ export function ScanCamera() {
               <MetricBar label="Contr" value={scores.contrast} />
             </div>
           ) : null}
+
+          {/* Capture error banner */}
+          {captureError ? (
+            <div className="rounded-2xl bg-red-500/85 px-4 py-3 text-sm font-medium text-white backdrop-blur">
+              {captureError}
+            </div>
+          ) : null}
+
+          {/* Capture button */}
+          <button
+            type="button"
+            onClick={handleCapture}
+            disabled={capturing || captureDone}
+            className={`flex w-full items-center justify-center gap-3 rounded-2xl py-4 text-lg font-bold tracking-wide shadow-lg transition-colors disabled:cursor-not-allowed disabled:opacity-80 ${
+              captureDone
+                ? "bg-emerald-500 text-white"
+                : "bg-primary text-ink hover:bg-primary-hover"
+            }`}
+          >
+            {captureDone ? (
+              <>
+                <CheckCircle2 className="size-6" aria-hidden />
+                Captured
+              </>
+            ) : capturing ? (
+              <>
+                <Loader2 className="size-6 animate-spin" aria-hidden />
+                Uploading…
+              </>
+            ) : (
+              <>
+                <Camera className="size-6" aria-hidden />
+                Capture
+              </>
+            )}
+          </button>
         </div>
       ) : null}
     </div>
