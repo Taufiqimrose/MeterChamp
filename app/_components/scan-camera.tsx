@@ -3,9 +3,41 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Camera, CheckCircle2, X, Loader2 } from "lucide-react";
+import {
+  Camera,
+  CheckCircle2,
+  Droplets,
+  Flame,
+  Loader2,
+  X,
+  Zap,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { capturePhoto } from "@/lib/actions/capture-photo";
 import { startCamera, stopCamera } from "@/lib/camera/camera";
+
+// Visual treatment per meter type, used by the top overlay so a reader can
+// see at a glance which kind of meter they're aiming at.
+const TYPE_STYLE: Record<
+  "water" | "gas" | "electric",
+  { icon: LucideIcon; chip: string; bar: string }
+> = {
+  water: {
+    icon: Droplets,
+    chip: "bg-blue-500 text-white",
+    bar: "bg-blue-400",
+  },
+  electric: {
+    icon: Zap,
+    chip: "bg-primary text-ink",
+    bar: "bg-primary",
+  },
+  gas: {
+    icon: Flame,
+    chip: "bg-rose-500 text-white",
+    bar: "bg-rose-400",
+  },
+};
 import {
   imageDataToTensor,
   infer,
@@ -107,6 +139,8 @@ export interface ScanCameraProps {
   unitOfMeasure: string;
   /** How many meters of this type still need a capture this cycle, including current. */
   remaining: number;
+  /** Total meters of this type in the assigned park. */
+  total: number;
   /** When set, after a successful capture we auto-advance to /scan?type=X. */
   progressionType: "water" | "gas" | "electric";
 }
@@ -118,6 +152,7 @@ export function ScanCamera({
   meterType,
   unitOfMeasure,
   remaining,
+  total,
   progressionType,
 }: ScanCameraProps) {
   const router = useRouter();
@@ -144,6 +179,9 @@ export function ScanCamera({
   } | null>(null);
   const smoothQualityRef = useRef(0);
   const detectedHoldRef = useRef(0);
+  /** Last time we pushed UI state to React. Throttled to ~5Hz so the panels
+   *  don't flicker on every rAF frame. */
+  const lastUiTickRef = useRef(0);
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -153,8 +191,6 @@ export function ScanCamera({
     msg: "Point the camera at the meter",
     level: "info",
   });
-  const [scores, setScores] = useState<QualityScores | null>(null);
-  const [overall, setOverall] = useState<number>(0);
   const [detected, setDetected] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [captureError, setCaptureError] = useState<string | null>(null);
@@ -352,18 +388,19 @@ export function ScanCamera({
         }
 
         drawOverlay(items);
-        setDetected(detectedHoldRef.current > 0);
-        if (items.length > 0) {
-          setScores(items[0].scores);
-          setOverall(items[0].quality);
-          lastQualityRef.current = items[0].quality;
-        } else {
-          setScores(null);
-          setOverall(0);
-          lastQualityRef.current = 0;
+        // refs update every frame so capture has live values
+        lastQualityRef.current = items.length > 0 ? items[0].quality : 0;
+
+        // React state updates are throttled to 5 Hz to keep the UI calm.
+        // Detection/tip don't need 30 Hz updates and the flicker felt
+        // jittery to non-technical readers.
+        const nowMs = performance.now();
+        if (nowMs - lastUiTickRef.current >= 200) {
+          lastUiTickRef.current = nowMs;
+          setDetected(detectedHoldRef.current > 0);
+          const t = computeTip(items, videoEl.videoWidth, videoEl.videoHeight);
+          setTip(t);
         }
-        const t = computeTip(items, videoEl.videoWidth, videoEl.videoHeight);
-        setTip(t);
 
         fpsState.frames++;
         const now = performance.now();
@@ -544,31 +581,92 @@ export function ScanCamera({
     return () => window.removeEventListener("resize", syncOverlaySize);
   }, [syncOverlaySize]);
 
+  // Auto-start the camera on mount when permission is already granted.
+  // First-ever visit requires a user gesture for the permission prompt, so
+  // the "Start camera" CTA still appears then. After that — on every meter
+  // in the smart-progression flow — the camera opens automatically.
+  useEffect(() => {
+    if (phase !== "idle") return;
+    if (typeof navigator === "undefined") return;
+    const perms = navigator.permissions as
+      | { query: (d: { name: string }) => Promise<{ state: string }> }
+      | undefined;
+    if (!perms?.query) return;
+
+    let cancelled = false;
+    perms
+      .query({ name: "camera" })
+      .then((status) => {
+        if (!cancelled && status.state === "granted") {
+          handleStart();
+        }
+      })
+      .catch(() => {
+        /* Permissions API doesn't know "camera" on this browser — leave the
+           idle CTA so the user can grant by tapping. */
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [phase, handleStart]);
+
   return (
     <div className="relative flex flex-1 flex-col bg-black text-white">
-      {/* Top bar */}
-      <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-3 px-4 pt-4">
-        <Link
-          href="/read"
-          aria-label="Close scanner"
-          className="flex size-10 shrink-0 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur transition-colors hover:bg-black/70"
-        >
-          <X className="size-5" aria-hidden />
-        </Link>
-        <div className="flex-1 rounded-2xl bg-black/55 px-3 py-2 text-center text-xs leading-tight text-white backdrop-blur">
-          <p className="font-semibold capitalize">
-            {meterType} meter · {unitLabel}
-          </p>
-          <p className="text-white/70">
-            {unitOfMeasure} · {remaining} left
-          </p>
-        </div>
-        {phase === "running" && fpsLabel ? (
-          <span className="hidden rounded-full bg-black/50 px-3 py-1 text-xs font-medium text-white/80 backdrop-blur sm:inline">
-            {fpsLabel}
-          </span>
-        ) : null}
-      </div>
+      {/* Top context overlay — what to capture, made big so non-technical
+          readers can read it at a glance. */}
+      {(() => {
+        const TypeIcon = TYPE_STYLE[meterType].icon;
+        const chip = TYPE_STYLE[meterType].chip;
+        const bar = TYPE_STYLE[meterType].bar;
+        const currentIndex = Math.min(total - remaining + 1, total);
+        const pct = total > 0 ? ((currentIndex - 1) / total) * 100 : 0;
+        return (
+          <div className="absolute inset-x-0 top-0 z-20 flex items-start gap-3 px-4 pt-[max(1rem,env(safe-area-inset-top))]">
+            <Link
+              href="/read"
+              aria-label="Close scanner"
+              className="flex size-12 shrink-0 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-md transition-colors hover:bg-black/80"
+            >
+              <X className="size-5" aria-hidden />
+            </Link>
+
+            <div className="flex flex-1 flex-col gap-3 rounded-3xl bg-black/65 p-4 backdrop-blur-md ring-1 ring-white/10">
+              <div className="flex items-center gap-3">
+                <div
+                  className={`flex size-14 shrink-0 items-center justify-center rounded-2xl shadow ${chip}`}
+                >
+                  <TypeIcon className="size-7" strokeWidth={2.25} aria-hidden />
+                </div>
+                <div className="flex flex-1 flex-col leading-tight">
+                  <h1 className="text-xl font-extrabold capitalize">
+                    {meterType} meter
+                  </h1>
+                  <p className="text-sm text-white/70">
+                    Unit {unitLabel} · {unitOfMeasure}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-3xl font-extrabold leading-none">
+                    {currentIndex}
+                  </p>
+                  <p className="mt-1 text-[10px] uppercase tracking-wider text-white/60">
+                    of {total}
+                  </p>
+                </div>
+              </div>
+
+              {/* Progress through this meter type for the cycle */}
+              <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+                <div
+                  className={`h-full rounded-full ${bar} transition-all duration-500`}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Video + overlay always mounted (refs available before start) */}
       <div className="relative flex flex-1 items-center justify-center overflow-hidden">
@@ -650,99 +748,64 @@ export function ScanCamera({
         ) : null}
       </div>
 
-      {/* Bottom HUD overlays — only when running */}
+      {/* Bottom HUD — kept calm and large for non-technical readers.
+          Detection banner and per-metric bars removed; the tip card
+          carries the actionable message and the capture button is the
+          dominant CTA. */}
       {phase === "running" ? (
-        <div className="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-3 px-4 pb-6">
-          {/* Detection status badge */}
-          <div
-            className={`flex items-center gap-3 rounded-2xl bg-black/55 px-4 py-3 text-sm backdrop-blur transition-colors ${
-              detected ? "ring-2 ring-primary/60" : ""
-            }`}
-          >
-            <span
-              className={`inline-flex size-2.5 rounded-full ${
-                detected ? "bg-primary" : "bg-white/40"
-              }`}
-              aria-hidden
-            />
-            <div className="flex-1">
-              <p className="font-semibold">
-                {detected ? "Meter detected" : "No meter detected"}
-              </p>
-              <p className="text-xs text-white/70">
-                {detected
-                  ? "Hold steady — analyzing quality"
-                  : "Center the meter inside the frame"}
-              </p>
-            </div>
-            <span
-              className="rounded-full px-3 py-1 text-xs font-semibold"
-              style={{
-                background: qualityColor(overall),
-                color: overall > 0.5 ? "#111" : "white",
-                opacity: detected ? 1 : 0.4,
-              }}
-            >
-              {Math.round(overall * 100)}%
-            </span>
-          </div>
-
+        <div className="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-3 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
           {/* Tip card */}
           <div
-            className={`rounded-2xl px-4 py-3 text-sm font-medium backdrop-blur transition-colors ${
+            className={`rounded-2xl px-5 py-4 text-center text-base font-semibold backdrop-blur-md transition-colors ${
               tip.level === "good"
-                ? "bg-emerald-500/85 text-white"
+                ? "bg-emerald-500/90 text-white"
                 : tip.level === "warn"
-                  ? "bg-amber-500/85 text-zinc-900"
+                  ? "bg-amber-500/90 text-zinc-900"
                   : tip.level === "bad"
-                    ? "bg-red-500/85 text-white"
-                    : "bg-black/55 text-white"
+                    ? "bg-red-500/90 text-white"
+                    : "bg-black/65 text-white"
             }`}
           >
             {tip.msg}
           </div>
 
-          {/* Quality breakdown */}
-          {scores ? (
-            <div className="grid grid-cols-4 gap-2 rounded-2xl bg-black/55 p-3 backdrop-blur">
-              <MetricBar label="Sharp" value={scores.sharpness} />
-              <MetricBar label="Expo" value={scores.exposure} />
-              <MetricBar label="Noise" value={scores.noise} />
-              <MetricBar label="Contr" value={scores.contrast} />
-            </div>
-          ) : null}
-
-          {/* Capture error banner */}
+          {/* Capture error banner (rare) */}
           {captureError ? (
-            <div className="rounded-2xl bg-red-500/85 px-4 py-3 text-sm font-medium text-white backdrop-blur">
+            <div className="rounded-2xl bg-red-500/90 px-4 py-3 text-sm font-medium text-white backdrop-blur-md">
               {captureError}
             </div>
           ) : null}
 
-          {/* Capture button */}
+          {/* Big capture button. Subtle glow when quality is "good" to nudge
+              the reader to take the shot. */}
           <button
             type="button"
             onClick={handleCapture}
             disabled={capturing || captureDone}
-            className={`flex w-full items-center justify-center gap-3 rounded-2xl py-4 text-lg font-bold tracking-wide shadow-lg transition-colors disabled:cursor-not-allowed disabled:opacity-80 ${
+            aria-label="Capture meter photo"
+            className={`relative flex w-full items-center justify-center gap-3 rounded-2xl py-5 text-xl font-extrabold tracking-wide shadow-xl transition-all disabled:cursor-not-allowed disabled:opacity-90 ${
               captureDone
                 ? "bg-emerald-500 text-white"
-                : "bg-primary text-ink hover:bg-primary-hover"
+                : capturing
+                  ? "bg-primary text-ink"
+                  : tip.level === "good"
+                    ? "bg-primary text-ink ring-4 ring-primary/40"
+                    : "bg-primary text-ink hover:bg-primary-hover"
             }`}
           >
             {captureDone ? (
               <>
-                <CheckCircle2 className="size-6" aria-hidden />
+                <CheckCircle2 className="size-7" aria-hidden />
                 Captured
               </>
             ) : capturing ? (
               <>
-                <Loader2 className="size-6 animate-spin" aria-hidden />
+                <Loader2 className="size-7 animate-spin" aria-hidden />
                 Uploading…
               </>
             ) : (
               <>
-                <Camera className="size-6" aria-hidden />
+                <Camera className="size-7" aria-hidden />
                 Capture
               </>
             )}
@@ -753,20 +816,3 @@ export function ScanCamera({
   );
 }
 
-function MetricBar({ label, value }: { label: string; value: number }) {
-  const pct = Math.round(Math.max(0, Math.min(1, value)) * 100);
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-baseline justify-between text-[10px] uppercase tracking-wider text-white/70">
-        <span>{label}</span>
-        <span className="font-semibold text-white">{pct}%</span>
-      </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-white/20">
-        <div
-          className="h-full rounded-full transition-all"
-          style={{ width: `${pct}%`, background: qualityColor(value) }}
-        />
-      </div>
-    </div>
-  );
-}

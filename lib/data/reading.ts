@@ -115,6 +115,7 @@ export async function getReadingProgress(): Promise<ReadingProgress | null> {
 export async function getNextPendingMeter(meterType: MeterType): Promise<
   | (Awaited<ReturnType<typeof getCaptureContext>> & {
       remaining: number;
+      total: number;
     })
   | null
 > {
@@ -157,7 +158,9 @@ export async function getNextPendingMeter(meterType: MeterType): Promise<
     }[];
   };
 
-  const pending = ((meters ?? []) as unknown as Row[])
+  const rows = (meters ?? []) as unknown as Row[];
+  const total = rows.length;
+  const pending = rows
     .filter(
       (m) =>
         !m.photos.some(
@@ -179,7 +182,7 @@ export async function getNextPendingMeter(meterType: MeterType): Promise<
   const ctx = await getCaptureContext(next.id);
   if (!ctx) return null;
 
-  return { ...ctx, remaining: pending.length };
+  return { ...ctx, remaining: pending.length, total };
 }
 
 function startOfMonthIso(d: Date): string {

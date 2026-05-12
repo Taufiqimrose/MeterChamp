@@ -83,6 +83,7 @@ export default async function ScanPage({
       meterType={next.meterType}
       unitOfMeasure={next.unitOfMeasure}
       remaining={next.remaining}
+      total={next.total}
       progressionType={meterType}
     />
   );
