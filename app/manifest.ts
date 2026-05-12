@@ -2,15 +2,15 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Meter Made Easy",
-    short_name: "Meter Made Easy",
-    description: "Meter Made Easy — a Next.js PWA.",
+    name: "Meters Made Easy",
+    short_name: "Meters Made Easy",
+    description: "Meters Made Easy — a Next.js PWA.",
     start_url: "/",
     scope: "/",
     display: "standalone",
     orientation: "portrait",
-    background_color: "#ffffff",
-    theme_color: "#0a0a0a",
+    background_color: "#fbf3e8",
+    theme_color: "#008080",
     icons: [
       {
         src: "/icon.svg",
