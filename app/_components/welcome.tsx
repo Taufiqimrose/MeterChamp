@@ -61,7 +61,7 @@ export function Welcome() {
           transition={fadeUpTransition}
           className="mt-8 text-3xl font-extrabold uppercase tracking-wide"
         >
-          Meters Made Easy
+          Meter Champ
         </motion.h1>
 
         <motion.p

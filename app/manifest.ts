@@ -2,10 +2,10 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Meters Made Easy",
-    short_name: "Meters Made Easy",
+    name: "Meter Champ",
+    short_name: "Meter Champ",
     description:
-      "Meters Made Easy — meter reading PWA by Harmony Communities Inc.",
+      "Meter Champ — meter reading PWA by Harmony Communities Inc.",
     start_url: "/",
     scope: "/",
     display: "standalone",

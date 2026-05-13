@@ -33,7 +33,7 @@ console.log(`Key ID : ${process.env.AWS_ACCESS_KEY_ID.slice(0, 6)}…\n`);
 const s3 = new S3Client({ region: REGION });
 
 const testKey = `_health/smoke-${Date.now()}.txt`;
-const body = `Meters Made Easy S3 smoke test — ${new Date().toISOString()}\n`;
+const body = `Meter Champ S3 smoke test — ${new Date().toISOString()}\n`;
 
 try {
   await s3.send(

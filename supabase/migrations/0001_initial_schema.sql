@@ -1,5 +1,5 @@
 --------------------------------------------------------------------------------
--- Meters Made Easy — initial schema
+-- Meter Champ — initial schema
 --
 -- Design principles:
 --   1. Meter readings are append-only. Corrections go through `superseded_by`,
