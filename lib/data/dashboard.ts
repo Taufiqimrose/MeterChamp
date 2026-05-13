@@ -1,5 +1,5 @@
 import "server-only";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getUser } from "@/lib/supabase/server";
 
 export interface DashboardSnapshot {
   fullName: string;
@@ -21,28 +21,41 @@ export interface DashboardSnapshot {
  */
 export async function getDashboardSnapshot(): Promise<DashboardSnapshot | null> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getUser();
   if (!user) return null;
 
-  // Profile (for the greeting).
-  const profilePromise = supabase
-    .from("profiles")
-    .select("full_name")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  // Progress view: totals + readings_this_month, scoped to active assignment.
-  const progressPromise = supabase
-    .from("current_park_progress")
-    .select("park_id, park_name, total_meters, readings_this_month")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  const [profileRes, progressRes] = await Promise.all([
-    profilePromise,
-    progressPromise,
+  // All three queries fire in parallel. The previous version awaited
+  // profile + progress, then issued the last-reading query gated on a
+  // park_id from progress — but RLS already scopes photos to the user's
+  // current park, so the explicit park filter is redundant and lets us
+  // drop one sequential round-trip.
+  const [profileRes, progressRes, lastReadingRes] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("id", user.id)
+      .maybeSingle(),
+    supabase
+      .from("current_park_progress")
+      .select("park_id, park_name, total_meters, readings_this_month")
+      .eq("user_id", user.id)
+      .maybeSingle(),
+    supabase
+      .from("photos")
+      .select(
+        `
+        captured_at,
+        unit_meters!inner (
+          meter_type,
+          units!inner ( label )
+        )
+      `,
+      )
+      .eq("kind", "meter_reading")
+      .is("deleted_at", null)
+      .order("captured_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   const fullName = profileRes.data?.full_name ?? "there";
@@ -60,28 +73,6 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot | null> 
 
   const { park_id, park_name, total_meters, readings_this_month } =
     progressRes.data;
-
-  // Latest captured (non-deleted) meter_reading photo in this park, plus the
-  // unit label and meter type for display. We key off photos rather than
-  // meter_readings because the reader's "last action" is uploading a photo;
-  // the extraction service writes the meter_readings row later.
-  const lastReadingRes = await supabase
-    .from("photos")
-    .select(
-      `
-      captured_at,
-      unit_meters!inner (
-        meter_type,
-        units!inner ( label, park_id )
-      )
-    `,
-    )
-    .eq("kind", "meter_reading")
-    .is("deleted_at", null)
-    .eq("unit_meters.units.park_id", park_id)
-    .order("captured_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
 
   type LastReadingRow = {
     captured_at: string;

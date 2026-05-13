@@ -4,7 +4,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getUser } from "@/lib/supabase/server";
 import { getCaptureContext } from "@/lib/data/units";
 
 type CaptureResult =
@@ -13,9 +13,7 @@ type CaptureResult =
 
 export async function capturePhoto(formData: FormData): Promise<CaptureResult> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getUser();
   if (!user) return { ok: false, error: "Not signed in" };
 
   const unitMeterId = formData.get("unit_meter_id");

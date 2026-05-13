@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cache } from "react";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
@@ -28,3 +29,14 @@ export async function createClient() {
     },
   );
 }
+
+// Memoized per React render so that the proxy, layout, and individual data
+// loaders sharing one request don't each pay an Auth round-trip. The proxy
+// runs outside the render and is intentionally not cached here.
+export const getUser = cache(async () => {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return user;
+});

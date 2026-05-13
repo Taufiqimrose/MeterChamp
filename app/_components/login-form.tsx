@@ -36,10 +36,21 @@ function getInputValue(event: ChangeEvent<HTMLInputElement>) {
   return (event.currentTarget as EventTarget & { value: string }).value;
 }
 
+// `redirectTo` is attacker-controlled. Reject anything that isn't a
+// same-origin path — Next.js will happily navigate `router.replace` to an
+// external URL or execute a `javascript:` URI, which would be an open
+// redirect / XSS.
+function safeRedirect(target: string | null): string {
+  if (!target) return "/dashboard";
+  if (!target.startsWith("/")) return "/dashboard";
+  if (target.startsWith("//")) return "/dashboard"; // protocol-relative
+  return target;
+}
+
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectTo = searchParams.get("redirectTo") ?? "/dashboard";
+  const redirectTo = safeRedirect(searchParams.get("redirectTo"));
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

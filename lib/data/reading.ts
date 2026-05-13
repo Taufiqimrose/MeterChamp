@@ -1,5 +1,5 @@
 import "server-only";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getUser } from "@/lib/supabase/server";
 import { getCaptureContext } from "@/lib/data/units";
 import type { MeterType } from "@/lib/data/units";
 
@@ -26,9 +26,7 @@ export interface ReadingProgress {
  */
 export async function getReadingProgress(): Promise<ReadingProgress | null> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getUser();
   if (!user) return null;
 
   const { data: assignment } = await supabase
@@ -49,27 +47,39 @@ export async function getReadingProgress(): Promise<ReadingProgress | null> {
 
   const monthStartIso = startOfMonthIso(new Date());
 
-  const { data: meters, error } = await supabase
-    .from("unit_meters")
-    .select(
-      `id, meter_type, units!inner ( park_id, active, label ),
-       photos ( captured_at, deleted_at, kind )`,
-    )
-    .eq("active", true)
-    .eq("units.park_id", a.park_id)
-    .eq("units.active", true);
-  if (error) throw error;
+  // Two scoped queries beat one join: the old version pulled every photo
+  // ever recorded against every meter in the park, just to ask "was this
+  // meter captured this cycle?". Now we fetch the meter list and the
+  // captured-this-cycle set separately, both bounded by park size.
+  const [metersRes, capturedRes] = await Promise.all([
+    supabase
+      .from("unit_meters")
+      .select(`id, meter_type, units!inner ( label, park_id, active )`)
+      .eq("active", true)
+      .eq("units.park_id", a.park_id)
+      .eq("units.active", true),
+    supabase
+      .from("photos")
+      .select("unit_meter_id")
+      .eq("kind", "meter_reading")
+      .is("deleted_at", null)
+      .gte("captured_at", monthStartIso),
+  ]);
+  if (metersRes.error) throw metersRes.error;
+  if (capturedRes.error) throw capturedRes.error;
 
   type MeterRow = {
     id: string;
     meter_type: MeterType;
     units: { label: string };
-    photos: {
-      captured_at: string;
-      deleted_at: string | null;
-      kind: string;
-    }[];
   };
+
+  const capturedSet = new Set<string>();
+  for (const row of (capturedRes.data ?? []) as {
+    unit_meter_id: string;
+  }[]) {
+    capturedSet.add(row.unit_meter_id);
+  }
 
   const byType: Record<MeterType, MeterTypeProgress> = {
     water: { total: 0, read: 0, nextLabel: null },
@@ -77,16 +87,10 @@ export async function getReadingProgress(): Promise<ReadingProgress | null> {
     electric: { total: 0, read: 0, nextLabel: null },
   };
 
-  for (const m of (meters ?? []) as unknown as MeterRow[]) {
+  for (const m of (metersRes.data ?? []) as unknown as MeterRow[]) {
     const slot = byType[m.meter_type];
     slot.total += 1;
-    const capturedThisCycle = m.photos.some(
-      (p) =>
-        p.kind === "meter_reading" &&
-        p.deleted_at === null &&
-        p.captured_at >= monthStartIso,
-    );
-    if (capturedThisCycle) {
+    if (capturedSet.has(m.id)) {
       slot.read += 1;
     } else {
       const candidate = m.units.label;
@@ -120,9 +124,7 @@ export async function getNextPendingMeter(meterType: MeterType): Promise<
   | null
 > {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getUser();
   if (!user) return null;
 
   const { data: assignment } = await supabase
@@ -136,40 +138,40 @@ export async function getNextPendingMeter(meterType: MeterType): Promise<
 
   const monthStartIso = startOfMonthIso(new Date());
 
-  const { data: meters, error } = await supabase
-    .from("unit_meters")
-    .select(
-      `id, units!inner ( id, label, park_id, active ),
-       photos ( captured_at, deleted_at, kind )`,
-    )
-    .eq("active", true)
-    .eq("meter_type", meterType)
-    .eq("units.park_id", assignment.park_id)
-    .eq("units.active", true);
-  if (error) throw error;
+  const [metersRes, capturedRes] = await Promise.all([
+    supabase
+      .from("unit_meters")
+      .select(`id, units!inner ( id, label, park_id, active )`)
+      .eq("active", true)
+      .eq("meter_type", meterType)
+      .eq("units.park_id", assignment.park_id)
+      .eq("units.active", true),
+    supabase
+      .from("photos")
+      .select("unit_meter_id")
+      .eq("kind", "meter_reading")
+      .is("deleted_at", null)
+      .gte("captured_at", monthStartIso),
+  ]);
+  if (metersRes.error) throw metersRes.error;
+  if (capturedRes.error) throw capturedRes.error;
 
   type Row = {
     id: string;
     units: { id: string; label: string };
-    photos: {
-      captured_at: string;
-      deleted_at: string | null;
-      kind: string;
-    }[];
   };
 
-  const rows = (meters ?? []) as unknown as Row[];
+  const capturedSet = new Set<string>();
+  for (const row of (capturedRes.data ?? []) as {
+    unit_meter_id: string;
+  }[]) {
+    capturedSet.add(row.unit_meter_id);
+  }
+
+  const rows = (metersRes.data ?? []) as unknown as Row[];
   const total = rows.length;
   const pending = rows
-    .filter(
-      (m) =>
-        !m.photos.some(
-          (p) =>
-            p.kind === "meter_reading" &&
-            p.deleted_at === null &&
-            p.captured_at >= monthStartIso,
-        ),
-    )
+    .filter((m) => !capturedSet.has(m.id))
     .sort((a, b) =>
       a.units.label.localeCompare(b.units.label, undefined, {
         numeric: true,
@@ -185,6 +187,12 @@ export async function getNextPendingMeter(meterType: MeterType): Promise<
   return { ...ctx, remaining: pending.length, total };
 }
 
+// Match the `current_park_progress` view, which uses `date_trunc('month',
+// now())` against a UTC session — i.e. UTC midnight on the 1st. Using local
+// getters here would drift by the server's UTC offset and put the dashboard
+// count and the read-picker count out of sync near month boundaries.
 function startOfMonthIso(d: Date): string {
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString();
+  return new Date(
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1),
+  ).toISOString();
 }

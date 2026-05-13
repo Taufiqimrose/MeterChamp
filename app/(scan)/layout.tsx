@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getUser } from "@/lib/supabase/server";
 
 export default async function ScanLayout({
   children,
@@ -11,10 +11,7 @@ export default async function ScanLayout({
     !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (supabaseConfigured) {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const user = await getUser();
     if (!user) redirect("/login");
   }
 
