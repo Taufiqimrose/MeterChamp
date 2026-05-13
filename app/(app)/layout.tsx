@@ -1,22 +1,18 @@
-import { redirect } from "next/navigation";
 import { BottomNav } from "@/app/_components/bottom-nav";
-import { getUser } from "@/lib/supabase/server";
 
-export default async function AppLayout({
+// Auth gating lives in proxy.ts (edge middleware) so this layout stays a
+// pure server component with no cookie/header dependency. That lets Next
+// statically pre-render placeholder routes under (app) — tabs that show
+// no live data (records, insights, messages, settings) become instant
+// because there is no per-click server work.
+//
+// Data-bearing pages (dashboard, read) still call getUser() in their own
+// loaders, so user identity is still verified where it actually matters.
+export default function AppLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // Skip the auth gate until Supabase credentials are configured.
-  const supabaseConfigured =
-    !!process.env.NEXT_PUBLIC_SUPABASE_URL &&
-    !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (supabaseConfigured) {
-    const user = await getUser();
-    if (!user) redirect("/login");
-  }
-
   return (
     <div className="flex min-h-dvh flex-col bg-cream text-ink">
       <div className="flex flex-1 flex-col">{children}</div>
