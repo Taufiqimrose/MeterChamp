@@ -4,7 +4,8 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Meters Made Easy",
     short_name: "Meters Made Easy",
-    description: "Meters Made Easy — a Next.js PWA.",
+    description:
+      "Meters Made Easy — meter reading PWA by Harmony Communities Inc.",
     start_url: "/",
     scope: "/",
     display: "standalone",

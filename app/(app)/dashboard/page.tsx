@@ -112,7 +112,7 @@ export default async function DashboardPage() {
         ) : (
           <div className="rounded-2xl border border-neutral/20 bg-white px-6 py-8 text-sm leading-relaxed text-neutral">
             You haven&apos;t been assigned to a site yet. Reach out to the
-            Harmony team to get an assignment.
+            Harmony Communities team to get an assignment.
           </div>
         )}
       </main>

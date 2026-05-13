@@ -9,7 +9,8 @@ const hankenGrotesk = Hanken_Grotesk({
 });
 
 const APP_NAME = "Meters Made Easy";
-const APP_DESCRIPTION = "Meters Made Easy — a Next.js PWA.";
+const APP_DESCRIPTION =
+  "Meters Made Easy — meter reading PWA by Harmony Communities Inc.";
 
 export const metadata: Metadata = {
   applicationName: APP_NAME,

@@ -16,7 +16,7 @@ export default async function ReadPage() {
       <div className="flex flex-1 flex-col items-center justify-center gap-3 px-8 text-center text-neutral">
         <p className="text-lg font-semibold text-ink">No site assigned</p>
         <p className="text-sm">
-          Reach out to the Harmony team for an assignment.
+          Reach out to the Harmony Communities team for an assignment.
         </p>
       </div>
     );

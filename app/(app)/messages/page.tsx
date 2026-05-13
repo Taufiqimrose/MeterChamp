@@ -11,7 +11,7 @@ export default function MessagesPage() {
     <PlaceholderPage
       icon={MessageCircle}
       title="Messages"
-      description="Conversations with the Harmony team will appear here."
+      description="Conversations with the Harmony Communities team will appear here."
     />
   );
 }

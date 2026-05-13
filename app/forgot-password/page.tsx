@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import Image from "next/image";
 import { KeyRound, Mail } from "lucide-react";
 
 export const metadata: Metadata = {
@@ -23,7 +24,7 @@ export default function ForgotPasswordPage() {
             Forgot password?
           </h1>
           <p className="max-w-sm text-base leading-relaxed text-neutral">
-            Contact the Harmony AI Team to reset your password.
+            Contact Harmony Communities to reset your password.
           </p>
         </div>
 
@@ -36,13 +37,20 @@ export default function ForgotPasswordPage() {
         </a>
       </main>
 
-      <footer className="flex justify-center">
+      <footer className="flex flex-col items-center gap-6">
         <Link
           href="/login"
           className="text-base font-medium text-secondary underline underline-offset-4 hover:text-secondary-hover"
         >
           Back to sign in
         </Link>
+        <Image
+          src="/logo.png"
+          alt="Harmony Communities"
+          width={156}
+          height={79}
+          className="h-7 w-auto opacity-60"
+        />
       </footer>
     </div>
   );
