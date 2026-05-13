@@ -94,11 +94,11 @@ export default async function DashboardPage() {
 
             <div className="grid w-full grid-cols-2 gap-3">
               <Link
-                href="/records"
+                href="/records?range=all"
                 className="flex items-center justify-center gap-2 rounded-2xl border border-secondary bg-white py-3 text-sm font-medium text-secondary transition-colors hover:bg-secondary/5"
               >
                 <ClipboardList className="size-4" aria-hidden />
-                See All Meters
+                See All Records
               </Link>
               <Link
                 href="/records?range=month"

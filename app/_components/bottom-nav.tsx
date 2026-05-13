@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutGrid, History, BarChart3, Settings } from "lucide-react";
+import { LayoutGrid, History, Settings } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 type NavItem = {
@@ -14,7 +14,6 @@ type NavItem = {
 const items: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutGrid },
   { href: "/records", label: "Records", icon: History },
-  { href: "/insights", label: "Insights", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -26,7 +25,7 @@ export function BottomNav() {
       aria-label="Primary"
       className="sticky bottom-0 z-10 border-t border-neutral/15 bg-cream px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
     >
-      <ul className="grid grid-cols-4 gap-1">
+      <ul className="grid grid-cols-3 gap-1">
         {items.map((item) => {
           const Icon = item.icon;
           const active =

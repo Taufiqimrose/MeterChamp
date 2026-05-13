@@ -17,7 +17,7 @@ export default function LoginPage() {
         width={156}
         height={79}
         priority
-        className="h-10 w-auto"
+        className="h-10 w-auto self-start"
       />
 
       <header className="mt-8 flex flex-col gap-2">
