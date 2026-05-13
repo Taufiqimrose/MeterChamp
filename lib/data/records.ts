@@ -14,17 +14,12 @@ export interface CaptureRow {
 }
 
 export interface CapturesQuery {
-  range: "month" | "all";
+  /** Inclusive lower bound. Omit for no lower bound (all time). */
+  fromIso?: string;
+  /** Exclusive upper bound. Useful for bounded windows like a single month. */
+  toIso?: string;
   type?: MeterType;
   limit?: number;
-}
-
-// UTC-anchored to match the DB views (date_trunc('month', now())) so the
-// "this month" filter is consistent across surfaces.
-function startOfMonthIso(d: Date): string {
-  return new Date(
-    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1),
-  ).toISOString();
 }
 
 /**
@@ -59,9 +54,8 @@ export async function getMyCaptures(
     .order("captured_at", { ascending: false })
     .limit(opts.limit ?? 100);
 
-  if (opts.range === "month") {
-    query = query.gte("captured_at", startOfMonthIso(new Date()));
-  }
+  if (opts.fromIso) query = query.gte("captured_at", opts.fromIso);
+  if (opts.toIso) query = query.lt("captured_at", opts.toIso);
 
   if (opts.type) {
     query = query.eq("unit_meters.meter_type", opts.type);

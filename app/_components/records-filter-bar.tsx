@@ -1,9 +1,14 @@
 import Link from "next/link";
 import type { MeterType } from "@/lib/data/units";
+import {
+  RecordsRangeSelect,
+  type RangeOption,
+} from "@/app/_components/records-range-select";
 
 type FilterBarProps = {
   activeType: MeterType | undefined;
-  activeRange: "month" | "all";
+  activeRange: string;
+  rangeOptions: RangeOption[];
 };
 
 const TYPES: { value: MeterType | undefined; label: string }[] = [
@@ -13,15 +18,7 @@ const TYPES: { value: MeterType | undefined; label: string }[] = [
   { value: "electric", label: "Electric" },
 ];
 
-const RANGES: { value: "month" | "all"; label: string }[] = [
-  { value: "month", label: "This month" },
-  { value: "all", label: "All time" },
-];
-
-function buildHref(opts: {
-  type?: MeterType;
-  range: "month" | "all";
-}): string {
+function buildHref(opts: { type?: MeterType; range: string }): string {
   const sp = new URLSearchParams();
   if (opts.type) sp.set("type", opts.type);
   // "month" is the default; omit from URL to keep it clean.
@@ -33,6 +30,7 @@ function buildHref(opts: {
 export function RecordsFilterBar({
   activeType,
   activeRange,
+  rangeOptions,
 }: FilterBarProps) {
   return (
     <div className="flex flex-col gap-3 px-4">
@@ -60,28 +58,8 @@ export function RecordsFilterBar({
         })}
       </div>
 
-      <div
-        className="flex gap-1 text-xs"
-        role="group"
-        aria-label="Filter by time range"
-      >
-        {RANGES.map((r) => {
-          const active = r.value === activeRange;
-          return (
-            <Link
-              key={r.value}
-              href={buildHref({ type: activeType, range: r.value })}
-              aria-pressed={active}
-              className={`rounded-full px-3 py-1 transition-colors ${
-                active
-                  ? "bg-secondary/15 font-semibold text-secondary"
-                  : "text-neutral hover:text-ink"
-              }`}
-            >
-              {r.label}
-            </Link>
-          );
-        })}
+      <div>
+        <RecordsRangeSelect value={activeRange} options={rangeOptions} />
       </div>
     </div>
   );
